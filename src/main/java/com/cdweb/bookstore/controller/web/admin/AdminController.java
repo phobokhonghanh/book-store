@@ -4,19 +4,20 @@ import com.cdweb.bookstore.api.input.BookInput;
 import com.cdweb.bookstore.api.input.UserInput;
 import com.cdweb.bookstore.dto.*;
 import com.cdweb.bookstore.service.*;
+import com.cdweb.bookstore.service.impl.ImageImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.ModelAndView;
 
+import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.GeneralSecurityException;
 import java.security.Principal;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.StringTokenizer;
 
 @RestController
 @RequestMapping("/admin-page")
@@ -34,6 +35,12 @@ public class AdminController {
     private IOrderService orderService;
     @Autowired
     private IRoleService roleService;
+    @Autowired
+    private ImageImpl imageImpl;
+
+    public AdminController(ImageImpl imageImpl) {
+        this.imageImpl = imageImpl;
+    }
 
     //books
     @GetMapping("/book-management")
@@ -52,25 +59,16 @@ public class AdminController {
     }
 
     @PostMapping("/add-book")
-    public ModelAndView addBook(@ModelAttribute("bookInput") BookInput input) {
-        Path staticPath = Paths.get("src/main/resources/static");
-        Path imagePath = Paths.get("admin/img/bookupload");
-        if (!Files.exists(CURRENT_FOLDER.resolve(staticPath).resolve(imagePath))) {
-            try {
-                Files.createDirectories(CURRENT_FOLDER.resolve(staticPath).resolve(imagePath));
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+    public ModelAndView addBook(@ModelAttribute("bookInput") BookInput input) throws IOException, GeneralSecurityException {
+        String path = null;
+        if (!input.getImages().isEmpty()) {
+            System.out.println(input.getImages().getOriginalFilename());
+            File tempFile = File.createTempFile("temp", null);
+            input.getImages().transferTo(tempFile);
+            path = imageImpl.uploadImageToDrive(tempFile);
+            System.out.println(path);
         }
-        Path file = CURRENT_FOLDER.resolve(staticPath)
-                .resolve(imagePath).resolve(input.getImages().getOriginalFilename());
-        if (!Files.exists(file)) {
-            try (OutputStream os = Files.newOutputStream(file)) {
-                os.write(input.getImages().getBytes());
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
+
         ModelAndView mav = new ModelAndView("redirect:/admin-page/book-management");
         BookDTO newBook = new BookDTO();
         if (input.getId() != 0) newBook.setId(input.getId());
@@ -89,15 +87,10 @@ public class AdminController {
         newBook.setAuthor(authorService.findById(input.getAuthorId()));
 
         //load hình
-        if (!input.getImages().isEmpty()) {
+        if (path != null) {
             List<BookImageDTO> imageList = new ArrayList<>();
             BookImageDTO img = new BookImageDTO();
-            StringTokenizer stringTokenizer = new StringTokenizer(imagePath.resolve(input.getImages().getOriginalFilename()).toString(), "\\");
-            String s = "";
-            while (stringTokenizer.hasMoreTokens()) {
-                s += stringTokenizer.nextToken() + "/";
-            }
-            img.setPath(s.substring(0, s.length() - 1));
+            img.setPath(path);
             imageList.add(img);
             newBook.setImages(imageList);
         }
@@ -234,18 +227,21 @@ public class AdminController {
         mav.addObject("orders", orderService.findAll());
         return mav;
     }
+
     @GetMapping("/edit-order-page")
     public ModelAndView editOrderPage(@RequestParam("id") int id) {
         ModelAndView mav = new ModelAndView("admin/order-management/editOrder");
         mav.addObject("order", orderService.findById(id));
         return mav;
     }
+
     @PostMapping("/edit-order")
     public ModelAndView editOrder(@ModelAttribute("orderInput") OrderDTO order) {
-       orderService.update(order, order.getOrderID());
+        orderService.update(order, order.getOrderID());
         ModelAndView mav = new ModelAndView("redirect:/admin-page/order-management");
         return mav;
     }
+
     @GetMapping("/detail-order")
     public ModelAndView detailOrder(@RequestParam("id") int id) {
         ModelAndView mav = new ModelAndView("admin/order-management/detail");
